@@ -65,7 +65,7 @@ class SelectorBIC(ModelSelector):
     """ select the model with the lowest Bayesian Information Criterion(BIC) score
 
     http://www2.imm.dtu.dk/courses/02433/doc/ch6_slides.pdf
-    Bayesian information criteria: BIC = -2 * logL + p * logN
+    Bayesian information criteria: BIC = -2 * L + p * logN
     """
 
     def select(self):
@@ -76,8 +76,23 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        min_bscore = None
+        modell = None
+
+        for n in range(self.min_n_components, self.max_n_components+1):
+            try:
+                model = self.base_model(n)
+                L = model.score(self.X, self.lengths)
+                feat = model.n_features
+                p = 2 * n * feat - 1 + n ** 2 
+                bscore = (-2 * L + p * math.log(len(self.sequences)))
+                if min_bscore is None or min_bscore > bscore:
+                    min_bscore = bscore
+                    modell = model
+            except:
+                pass
+
+        return modell
 
 
 class SelectorDIC(ModelSelector):
@@ -93,8 +108,28 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_score = None
+        modell = None
+        words = list(self.words)
+        words.remove(self.this_word)
+
+        for n in range(self.min_n_components, self.max_n_components+1):
+            try:
+                model = self.base_model(n)
+                score = model.score(self.X, self.lengths)
+
+                all_score = 0.0
+                for w in words:
+                    X, lengths = self.hwords[w]
+                    all_score = all_score+model.score(X, lengths)
+                dic_score =  score - (all_score / (len(self.words) - 1))
+                if best_score is None or best_score < dic_score:
+                    best_score = dic_score
+                    modell = model
+            except:
+                    pass
+
+        return modell
 
 
 class SelectorCV(ModelSelector):
@@ -102,19 +137,39 @@ class SelectorCV(ModelSelector):
         n_splits : int, default=3
         Number of folds. Must be at least 2.
     '''
-
+    
+    n_splits=3
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        n_splits=3
+        best_score= float('-inf')
+        best_model = None
+        
+        for n_components in range(self.min_n_components, self.max_n_components + 1):
+            scores = []
+            n_splits=3
+            model, L = None, None
+            
+            if(len(self.sequences) < n_splits):
+                break
+            
+            split_method = KFold(random_state=self.random_state, n_splits=n_splits)
+            for train_index, test_index in split_method.split(self.sequences):
+                X_train, lengths_train = combine_sequences(train_index, self.sequences)
+                X_test,  lengths_test  = combine_sequences(test_index, self.sequences)
+                try:
+                    model = GaussianHMM(n_components=n_components, covariance_type="diag", n_iter=1000,
+                                    random_state=inst.random_state, verbose=False).fit(X_train, lengths_train)
+                    L = model.score(X_test, lengths_test)
+                    scores.append(L)
+                except Exception as e:
+                    break
+            
+            avg = np.average(scores) if len(scores) > 0 else float("-inf")
+            
+            # if avg > best_score:
+            best_score, best_model = max(avg,best_score), model
+        
+        return best_model if best_model is not None else self.base_model(self.n_constant)
 
-        X = np.array([[1, 2], [3, 4], [1, 2], [3, 4]])
-        y = np.array([1, 2, 3, 4])
-        kf = KFold(n_splits=2)
-        kf.get_n_splits(X)
 
-        print(kf)  
-
-        for train_index, test_index in kf.split(X):
-           print("TRAIN:", train_index, "TEST:", test_index)
-           X_train, X_test = X[train_index], X[test_index]
-           y_train, y_test = y[train_index], y[test_index]
-        raise NotImplementedError

@@ -3,7 +3,7 @@ from asl_data import SinglesData
 
 
 def recognize(models: dict, test_set: SinglesData):
-    """ Recognize test word sequences from word models set
+    """ Recognize test word sequencesuences from word models set
 
    :param models: dict of trained models
        {'SOMEWORD': GaussianHMM model object, 'SOMEOTHERWORD': GaussianHMM model object, ...}
@@ -20,6 +20,24 @@ def recognize(models: dict, test_set: SinglesData):
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     probabilities = []
     guesses = []
-    # TODO implement the recognizer
-    # return probabilities, guesses
-    raise NotImplementedError
+    for i in range(test_set.num_items):
+    
+        prob=float("-inf")
+        max_word =  None
+        
+        word_probabilities = {}
+        
+        sequences, lengths = test_set.get_item_Xlengths(i)
+        for word, model in models.items():
+            try:
+                word_probabilities[word] = model.score(sequences, lengths)
+            except Exception as e:
+                word_probabilities[word] = float("-inf")
+            
+            if word_probabilities[word] > prob:
+                prob, max_word = word_probabilities[word], word
+                
+        probabilities.append(word_probabilities)
+        guesses.append(max_word)
+        
+    return probabilities, guesses
