@@ -84,7 +84,7 @@ class SelectorBIC(ModelSelector):
                 model = self.base_model(n)
                 L = model.score(self.X, self.lengths)
                 feat = model.n_features
-                p = 2 * n * feat - 1 + n ** 2 
+                p = (model.startprob_.size - 1) + (model.transmat_.size - 1) + model.means_.size + model.covars_.diagonal().size
                 bscore = (-2 * L + p * math.log(len(self.sequences)))
                 if min_bscore is None or min_bscore > bscore:
                     min_bscore = bscore
@@ -110,8 +110,8 @@ class SelectorDIC(ModelSelector):
 
         best_score = None
         modell = None
-        words = list(self.words)
-        words.remove(self.this_word)
+        other_words = list(self.words)
+        other_words.remove(self.this_word)
 
         for n in range(self.min_n_components, self.max_n_components+1):
             try:
@@ -119,10 +119,10 @@ class SelectorDIC(ModelSelector):
                 score = model.score(self.X, self.lengths)
 
                 all_score = 0.0
-                for w in words:
+                for w in other_words:
                     X, lengths = self.hwords[w]
                     all_score = all_score+model.score(X, lengths)
-                dic_score =  score - (all_score / (len(self.words) - 1))
+                dic_score =  score - (all_score / (len(self.words)))
                 if best_score is None or best_score < dic_score:
                     best_score = dic_score
                     modell = model
@@ -130,7 +130,6 @@ class SelectorDIC(ModelSelector):
                     pass
 
         return modell
-
 
 class SelectorCV(ModelSelector):
     ''' select best model based on average log Likelihood of cross-validation folds
@@ -141,35 +140,46 @@ class SelectorCV(ModelSelector):
     n_splits=3
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        n_splits=3
-        best_score= float('-inf')
+        best_score= None
         best_model = None
+        n_c=None
         
         for n_components in range(self.min_n_components, self.max_n_components + 1):
-            scores = []
-            n_splits=3
-            model, L = None, None
-            
-            if(len(self.sequences) < n_splits):
-                break
-            
-            split_method = KFold(random_state=self.random_state, n_splits=n_splits)
-            for train_index, test_index in split_method.split(self.sequences):
-                X_train, lengths_train = combine_sequences(train_index, self.sequences)
-                X_test,  lengths_test  = combine_sequences(test_index, self.sequences)
-                try:
-                    model = GaussianHMM(n_components=n_components, covariance_type="diag", n_iter=1000,
-                                    random_state=inst.random_state, verbose=False).fit(X_train, lengths_train)
-                    L = model.score(X_test, lengths_test)
-                    scores.append(L)
-                except Exception as e:
-                    break
-            
-            avg = np.average(scores) if len(scores) > 0 else float("-inf")
-            
-            # if avg > best_score:
-            best_score, best_model = max(avg,best_score), model
-        
-        return best_model if best_model is not None else self.base_model(self.n_constant)
-
-
+            try:
+                fmodel=None
+                L=None
+                
+                if (len(self.sequences) >= 2):
+                    #n_splits=SelectorCV.n_splits
+                    scores = []
+                    n_splits = min(len(self.sequences),3)
+                    model, L = None, None
+                    split_method = KFold(random_state=self.random_state, n_splits=n_splits)
+                    
+                    for train_index, test_index in split_method.split(self.sequences):
+                        
+                        X_train, lengths_train = combine_sequences(train_index, self.sequences)
+                        
+                        X_test, lengths_test = combine_sequences(test_index, self.sequences)
+                        
+                        model =GaussianHMM(n_components=n_components, covariance_type="diag", n_iter=1000,
+                                        random_state=self.random_state, verbose=False).fit(X_train, lengths_train)
+                        L = model.score(X_test, lengths_test)
+                        scores.append(L)
+                    avg = np.average(scores) if len(scores) > 0 else float('-inf') 
+                   
+                    
+                else:
+                    fmodel = GaussianHMM(n_components=n_components, covariance_type="diag", n_iter=1000,
+                                        random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
+                    avg = fmodel.score(self.X, self.lengths)
+  
+                if best_score is None or avg > best_score:
+                    best_score = avg
+                    if fmodel is None:
+                        fmodel = GaussianHMM(n_components=n_components, covariance_type="diag", n_iter=1000,
+                                             random_state=self.random_state,verbose=False).fit(self.X, self.lengths)               
+                    best_model = fmodel
+            except:
+                pass
+        return best_model
